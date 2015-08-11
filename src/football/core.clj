@@ -24,8 +24,8 @@
                                  (let [[nm d] %]
                                    [(str prefix (or (:selector d) nm))
                                     (or (:extractor d) `text-or-num)])
-                                [(str prefix (name %))
-                                 `text-or-num]))
+                                 [(str prefix (name %))
+                                  `text-or-num]))
                          (apply concat))]
     `(extract-from ~doc ~selector ~fnames ~@fextractors)))
 
@@ -61,7 +61,7 @@
         curr (->> (extract-from d "div.statsPlayerCurrentDetails div.statsPlayerCurrentRow"
                                 [:d :v]
                                 "div.statsPlayerCurrentHeader" (comp make-keyword text)
-                                "div.statsPlayerCurrentValue" text->num)
+                                "div.statsPlayerCurrentValue" text-or-num)
                   (#(zipmap (map :d %) (map :v %))))
         hist (->> (extract-table-rows d
                                       "table.genericTable tbody tr"
@@ -78,7 +78,6 @@
                   (remove #(nil? (:statsPlayerHistoricalSeason %))))]
     (assoc curr :historical hist)))
 
-
 (def ^:dynamic *players*
   (let [roles   {1 :goal-keeper
                  2 :defender
@@ -92,7 +91,6 @@
                      (map :id)
                      (pmap get-player-detail))]
     (map merge players details)))
-
 
 (defn- get-match-report [page]
   (let [doc     (->> (c/get (str "https://football.barclayssportshub.com/" page))
@@ -129,56 +127,50 @@
   (->> (extract-table-rows doc
                            "table.genericTable.matchResult tbody tr"
                            "td."
-                     :upcomingMatchDate
-                     :upcomingMatchHome
-                     :upcomingMatchScore
-                     :upcomingMatchAway
-                     [:upcomingMatchReport {:selector "upcomingMatchReport a"
-                                            :extractor (attr :href)}]
-                     )
+                           :upcomingMatchDate
+                           :upcomingMatchHome
+                           :upcomingMatchScore
+                           :upcomingMatchAway
+                           [:upcomingMatchReport {:selector "upcomingMatchReport a"
+                                                  :extractor (attr :href)}])
        (remove (comp nil? :upcomingMatchDate))))
 
-(comment
+(comment (defn- hist-points [p n]
+           (let [hs (->> (:historical p)
+                         reverse
+                         (take n))
+                 cnt (count hs)
+                 tp  (reduce + (map :statsPlayerHistoricalPoints hs))]
+             (if (= 0 cnt)
+               0
+               (Math/max  (int 100) (int (* 10000 (/ (double tp) cnt)))))))
 
+         (let [d (->> *players*
+                      (group-by :playerStatsClub)
+                      (mapv (fn [[g v]]
+                              {:id (Math/abs (hash g))
+                               :name g
+                               :children (mapv (fn [p] {:id (read-string (:id p))
+                                                        :name (:playerStatsPlayer p)
+                                                        :size (:playerStatsCost p)}) v)})))
+               r {:id 0 :name "" :children d}]
+           (->> (json/write-str r)
+                (spit "flare.json")))
 
-  (defn- hist-points [p n]
-    (let [hs (->> (:historical p)
-                  reverse
-                  (take n))
-          cnt (count hs)
-          tp  (reduce + (map :statsPlayerHistoricalPoints hs))]
-      (if (= 0 cnt)
-        0
-        (Math/max  (int 100) (int (* 10000 (/ (double tp) cnt)))))))
+         (let [d (->> *players*
+                      (filter #(> (:playerStatsPoints %) 0))
+                      (group-by :playerStatsClub)
+                      (mapv (fn [[g v]]
+                              {:id (Math/abs (hash g))
+                               :name g
+                               :children (mapv (fn [p] {:id (read-string (:id p))
+                                                        :name (:playerStatsPlayer p)
+                                                        :size (:playerStatsPoints p)}) v)})))
+               r {:id 0 :name "" :children d}]
+           (->> (json/write-str r)
+                (spit "flare.json"))))
 
-  (let [d (->> *players*
-               (group-by :playerStatsClub)
-               (mapv (fn [[g v]]
-                       {:id (Math/abs (hash g))
-                        :name g
-                        :children (mapv (fn [p] {:id (read-string (:id p))
-                                                 :name (:playerStatsPlayer p)
-                                                 :size (:playerStatsCost p)}) v)})))
-        r {:id 0 :name "" :children d}]
-    (->> (json/write-str r)
-         (spit "flare.json")))
-
-  (let [d (->> *players*
-               (filter #(> (:playerStatsPoints %) 0))
-               (group-by :playerStatsClub)
-               (mapv (fn [[g v]]
-                       {:id (Math/abs (hash g))
-                        :name g
-                        :children (mapv (fn [p] {:id (read-string (:id p))
-                                                 :name (:playerStatsPlayer p)
-                                                 :size (:playerStatsPoints p)}) v)})))
-        r {:id 0 :name "" :children d}]
-    (->> (json/write-str r)
-         (spit "flare.json"))))
-
-
-
-(defn- create-group [f-group s & keys ]
+(defn- create-group [f-group s & keys]
   (if (empty? keys)
     s
     (let [c (first keys)]
